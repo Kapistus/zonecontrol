@@ -361,6 +361,7 @@
       <div class="name" id="teamLabelPrefix">TEAM <b id="teamName">—</b></div>
     </div>
     <div style="display:flex; align-items:center; gap:10px;">
+      <span class="status-pill" id="elapsedPill" style="display:none;">00:00</span>
       <div class="status-pill" id="statusPill">LIVE</div>
       <span class="status-pill" id="adminPlayBadge" style="display:none;"></span>
       <button class="logout" id="logoutBtn">END SESSION</button>
@@ -375,7 +376,7 @@
     <div class="map-wrap" id="mapView">
       <div id="mapCanvas"></div>
       <div class="gps-badge" id="gpsBadge">GPS: WAITING…</div>
-      <div class="sim-hint" id="simHint">no GPS fix yet — tap the map to drop a simulated position (desktop/testing only)</div>
+      <div class="sim-hint" id="simHint">no GPS fix yet — move to an open area, or check that location access is allowed for this site</div>
       <div class="waiting-overlay" id="waitingOverlay">GAME NOT STARTED<br>waiting for admin…</div>
       <div class="top-left-controls">
         <div class="zones-panel" id="zonesPanel">
@@ -553,6 +554,7 @@ ZONES.forEach(z => { zoneControl[z.id] = { red: 0, yellow: 0 }; });
 let activeIdx = 0; // declared here (not down in the game-loop section) since
                     // buildZonesPanel() below needs it available immediately
 let activeRemaining = 0; // set properly once startDemoLoop() runs
+let totalElapsedSeconds = 0; // whole-round elapsed time, shown to everyone
 buildZonesPanel(); // populate the collapsible zones overlay immediately, independent of map/login state
 
 let currentTeam = null; // 'red' | 'yellow' | 'admin'
@@ -687,7 +689,6 @@ let playerTrailLine = null; // faint line from previous fix to current fix — s
 let prevFix = null;         // {lat, lng} — the fix before lastFix
 let watchId = null;
 let lastFix = null;    // {lat, lng}
-let simulatedMode = false;
 let mapsReady = false;      // true once the Google Maps script has loaded
 let pendingBuildTeam = null; // team to build for once maps finish loading
 
@@ -750,14 +751,8 @@ function initGoogleMap(){
     zoneLabels[z.id] = label;
   });
 
-  // tap-to-simulate: lets you test capture logic on a desktop with no real GPS
-  gMap.addListener('click', (e)=>{
-    if(!simulatedMode){
-      simulatedMode = true;
-      document.getElementById('simHint').textContent = 'simulated position — tap anywhere to move it';
-    }
-    handlePositionFix(e.latLng.lat(), e.latLng.lng(), null, true);
-  });
+  // Position is bound to real GPS only, for every role including admin —
+  // no click-to-set fallback exists anywhere in the app on purpose.
 }
 
 function startGpsTracking(){
@@ -769,9 +764,8 @@ function startGpsTracking(){
   setGpsBadge('', 'GPS: WAITING…');
   watchId = navigator.geolocation.watchPosition(
     (pos)=>{
-      simulatedMode = false;
       document.getElementById('simHint').style.display = 'none';
-      handlePositionFix(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy, false);
+      handlePositionFix(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
     },
     (err)=>{
       setGpsBadge('err', 'GPS: ' + (err.code === 1 ? 'PERMISSION DENIED' : 'UNAVAILABLE'));
@@ -788,14 +782,14 @@ function setGpsBadge(cls, text){
   el.textContent = text;
 }
 
-function handlePositionFix(lat, lng, accuracy, isSimulated){
+function handlePositionFix(lat, lng, accuracy){
   // remember where we were before overwriting lastFix, so we can draw a
   // line from there to here — a single 2-point segment, not an accumulating trail
   if(lastFix){
     prevFix = lastFix;
   }
   lastFix = { lat, lng };
-  setGpsBadge(isSimulated ? '' : 'ok', isSimulated ? 'GPS: SIMULATED' : 'GPS: LOCKED');
+  setGpsBadge('ok', 'GPS: LOCKED'); // real fixes only, for every role — no simulated state exists anymore
 
   if(!gMap) return;
   const teamColor = getEffectiveTeamColor();
@@ -902,7 +896,7 @@ function buildMap(team){
   startGpsTracking();
   setActiveZone(activeIdx); // re-apply active-zone styling for this view (no camera movement)
   if(lastFix){
-    handlePositionFix(lastFix.lat, lastFix.lng, null, simulatedMode);
+    handlePositionFix(lastFix.lat, lastFix.lng, null);
   }
   // container may have been display:none when the map was created (e.g. admin
   // observer view before joining a team) — force Google Maps to recompute size.
@@ -927,7 +921,7 @@ window.addEventListener('resize', ()=>{ if(gMap) google.maps.event.trigger(gMap,
 
 
 // ---------- SHARED GAME STATE (synced from Supabase) ----------
-let gameStateCache = { status:'stopped', active_zone_idx:0, zone_duration_seconds: CONFIG.ZONE_ACTIVE_SECONDS, active_zone_started_at:null, paused_remaining_seconds:null };
+let gameStateCache = { status:'stopped', active_zone_idx:0, zone_duration_seconds: CONFIG.ZONE_ACTIVE_SECONDS, active_zone_started_at:null, paused_remaining_seconds:null, game_started_at:null, paused_elapsed_seconds:null };
 
 async function fetchGameStateOnce(){
   const { data, error } = await sb.from('game_state').select('*').eq('id', 1).single();
@@ -1079,6 +1073,19 @@ setInterval(()=>{
     activeRemaining = gameStateCache.paused_remaining_seconds ?? 0;
   }
 
+  if(gameStateCache.status === 'running' && gameStateCache.game_started_at){
+    totalElapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(gameStateCache.game_started_at).getTime()) / 1000));
+  } else if(gameStateCache.status === 'paused'){
+    totalElapsedSeconds = gameStateCache.paused_elapsed_seconds ?? totalElapsedSeconds;
+  } // while stopped, just leave it showing whatever it last was — same
+    // "results stay visible after End" pattern as the zone-control scoreboard
+
+  const elapsedEl = document.getElementById('elapsedPill');
+  if(elapsedEl){
+    elapsedEl.style.display = gameStateCache.game_started_at ? '' : 'none';
+    elapsedEl.textContent = fmtTime(totalElapsedSeconds);
+  }
+
   updateControlTimeUI();
 }, 1000);
 
@@ -1122,21 +1129,26 @@ function initAdminPanel(){
     const { error } = await sb.from('game_state').update({
       status: 'paused',
       paused_remaining_seconds: activeRemaining,
+      paused_elapsed_seconds: totalElapsedSeconds,
       updated_at: new Date().toISOString()
     }).eq('id', 1);
     if(error) console.error('pause failed:', error.message);
   });
   document.getElementById('btnResume').addEventListener('click', async ()=>{
     if(gameState !== 'paused') return;
-    // recompute a synthetic start timestamp so the shared elapsed-time math
-    // continues seamlessly from where it was frozen, rather than needing
-    // every client to special-case "paused" in its countdown formula
+    // recompute synthetic start timestamps for BOTH the zone timer and the
+    // whole-round elapsed clock, so each continues seamlessly from where it
+    // was frozen rather than jumping — same trick, two independent clocks
     const remaining = gameStateCache.paused_remaining_seconds ?? 0;
-    const syntheticStart = new Date(Date.now() - (gameStateCache.zone_duration_seconds - remaining) * 1000).toISOString();
+    const elapsed = gameStateCache.paused_elapsed_seconds ?? 0;
+    const syntheticZoneStart = new Date(Date.now() - (gameStateCache.zone_duration_seconds - remaining) * 1000).toISOString();
+    const syntheticGameStart = new Date(Date.now() - elapsed * 1000).toISOString();
     const { error } = await sb.from('game_state').update({
       status: 'running',
-      active_zone_started_at: syntheticStart,
+      active_zone_started_at: syntheticZoneStart,
+      game_started_at: syntheticGameStart,
       paused_remaining_seconds: null,
+      paused_elapsed_seconds: null,
       updated_at: new Date().toISOString()
     }).eq('id', 1);
     if(error) console.error('resume failed:', error.message);
