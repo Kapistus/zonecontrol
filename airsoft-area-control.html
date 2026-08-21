@@ -1,0 +1,1325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>AREA CONTROL</title>
+<link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<!--
+  Uses a Google Maps "Demo Key" — no credit card, no billing account.
+  Get one at https://developers.google.com/maps/demo-key (sign in with a
+  Google account only). It's meant for prototyping/testing rather than
+  guaranteed indefinite production use — separate daily quota, separate
+  terms of service (Maps Demo Project Terms) from a standard billed key.
+  Replace YOUR_DEMO_KEY_HERE below once you have one.
+-->
+<script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBI8CvMLwdphelUy3OR42ODwEyVKvyXu_M&callback=onGoogleMapsLoaded"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --ink:#151a12;
+    --panel:#1d2418;
+    --panel-2:#242c1d;
+    --khaki:#8a8a5c;
+    --khaki-dim:#5c5f45;
+    --paper:#e8e4d4;
+    --red:#b8402c;
+    --red-dim:#5c2019;
+    --yellow:#c99a1f;
+    --yellow-dim:#5c4712;
+    --ok:#6b8f4e;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; height:100%; background:var(--ink); overflow:hidden;}
+  body{
+    font-family:'Space Mono', monospace;
+    color:var(--paper);
+    display:flex;
+    align-items:stretch;
+    justify-content:stretch;
+  }
+  .stencil{ font-family:'Black Ops One', sans-serif; letter-spacing:0.04em; }
+
+  /* ---------- background texture ---------- */
+  .grain{
+    position:fixed; inset:0; pointer-events:none; opacity:0.05; z-index:50;
+    background-image: repeating-linear-gradient(0deg, #fff 0px, transparent 1px, transparent 2px);
+  }
+
+  /* ---------- LOGIN SCREEN ---------- */
+  #login{
+    position:fixed; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:
+      radial-gradient(ellipse at 50% 20%, #2a331f 0%, var(--ink) 70%);
+    z-index:10;
+    padding:24px;
+    transition:opacity 0.4s ease, transform 0.4s ease;
+  }
+  #login.hide{ opacity:0; transform:scale(0.98); pointer-events:none; }
+
+  .brand{
+    text-align:center;
+    margin-bottom:36px;
+  }
+  .brand .mark{
+    font-size:13px;
+    color:var(--khaki);
+    letter-spacing:0.35em;
+    margin-bottom:6px;
+  }
+  .brand h1{
+    font-size:30px;
+    margin:0;
+    color:var(--paper);
+    text-shadow: 2px 2px 0 var(--khaki-dim);
+  }
+  .brand .sub{
+    margin-top:8px;
+    font-size:11px;
+    color:var(--khaki-dim);
+    letter-spacing:0.15em;
+  }
+
+  .pin-display{
+    display:flex; gap:10px; margin-bottom:26px; height:20px;
+  }
+  .pin-dot{
+    width:14px; height:14px; border:2px solid var(--khaki-dim); border-radius:2px;
+    transform:rotate(45deg);
+    transition:all 0.15s ease;
+  }
+  .pin-dot.filled{ background:var(--khaki); border-color:var(--khaki); }
+  .pin-dot.err{ background:var(--red); border-color:var(--red); }
+
+  .keypad{
+    display:grid; grid-template-columns:repeat(3, 68px); gap:12px;
+  }
+  .pin-display{ flex-wrap:wrap; max-width:280px; justify-content:center; }
+  .key{
+    width:68px; height:68px;
+    border:1px solid var(--khaki-dim);
+    background:var(--panel);
+    color:var(--paper);
+    font-family:'Space Mono', monospace;
+    font-size:22px;
+    border-radius:4px;
+    display:flex; align-items:center; justify-content:center;
+    user-select:none; cursor:pointer;
+    transition: background 0.1s ease, transform 0.05s ease;
+  }
+  .key:active{ background:var(--khaki-dim); transform:scale(0.95); }
+  .key.wide{ font-size:12px; letter-spacing:0.1em; color:var(--khaki); }
+
+  .login-msg{
+    margin-top:20px; font-size:11px; letter-spacing:0.1em; height:14px;
+    color:var(--khaki-dim);
+  }
+  .login-msg.err{ color:var(--red); }
+
+  /* ---------- GAME SCREEN ---------- */
+  #game{
+    position:fixed; inset:0;
+    display:flex; flex-direction:column;
+    opacity:0; pointer-events:none;
+    transition:opacity 0.4s ease;
+  }
+  #game.show{ opacity:1; pointer-events:all; }
+
+  #game.team-red   { --team:var(--red);    --team-dim:var(--red-dim); }
+  #game.team-yellow{ --team:var(--yellow); --team-dim:var(--yellow-dim); }
+
+  header.hud{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 16px;
+    background:var(--panel);
+    border-bottom:2px solid var(--team, var(--khaki));
+    flex-shrink:0;
+  }
+  .team-tag{
+    display:flex; align-items:center; gap:10px;
+  }
+  .team-chip{
+    width:14px; height:14px; border-radius:50%;
+    background:var(--team, var(--khaki));
+    box-shadow:0 0 10px var(--team, var(--khaki));
+  }
+  .team-tag .name{ font-size:13px; letter-spacing:0.15em; }
+  .team-tag .name b{ color:var(--team); }
+
+  .status-pill{
+    font-size:10px; letter-spacing:0.12em;
+    padding:5px 10px; border-radius:20px;
+    background:var(--panel-2); color:var(--ok);
+    border:1px solid var(--ok);
+  }
+  .status-pill.paused{ color:var(--yellow); border-color:var(--yellow); }
+
+  .game-body{
+    position:relative; flex:1; display:flex; flex-direction:column; overflow:hidden;
+  }
+
+  .map-wrap{
+    flex:1; position:relative; overflow:hidden;
+    background:#232a1c;
+  }
+  #mapCanvas{ width:100%; height:100%; }
+
+  .top-left-controls{
+    position:absolute; top:10px; left:10px; z-index:400;
+    display:flex; gap:8px; align-items:flex-start;
+  }
+
+  .admin-menu-toggle{
+    flex-shrink:0;
+    background:rgba(29,36,24,0.94); border:1px solid var(--khaki-dim); color:var(--paper);
+    font-family:'Space Mono', monospace; font-size:10px; letter-spacing:0.1em;
+    padding:8px 12px; border-radius:6px; cursor:pointer;
+  }
+
+  .admin-drawer-backdrop{
+    position:absolute; inset:0; z-index:499;
+    background:rgba(14,18,10,0.55);
+    opacity:0; pointer-events:none; transition:opacity 0.25s ease;
+  }
+  .admin-drawer-backdrop.show{ opacity:1; pointer-events:all; }
+
+  .admin-drawer{
+    position:absolute; top:0; left:0; bottom:0; width:300px; max-width:85vw;
+    background:var(--panel); border-right:1px solid var(--khaki-dim);
+    z-index:500; display:flex; flex-direction:column;
+    transform:translateX(-100%); transition:transform 0.25s ease;
+    box-shadow:4px 0 16px rgba(0,0,0,0.4);
+  }
+  .admin-drawer.open{ transform:translateX(0); }
+  .admin-drawer-header{
+    flex-shrink:0; display:flex; align-items:center; justify-content:space-between;
+    padding:14px 16px; border-bottom:1px solid var(--khaki-dim);
+    font-size:11px; letter-spacing:0.15em; color:var(--khaki);
+  }
+  .admin-drawer-close{
+    background:none; border:none; color:var(--khaki-dim); font-size:16px; cursor:pointer;
+    line-height:1; padding:2px 6px;
+  }
+
+  .gps-badge{
+    position:absolute; top:10px; left:10px; z-index:400;
+    font-size:9px; letter-spacing:0.08em; padding:5px 9px; border-radius:20px;
+    background:rgba(29,36,24,0.9); border:1px solid var(--khaki-dim); color:var(--khaki);
+  }
+  .gps-badge.ok{ color:var(--ok); border-color:var(--ok); }
+  .gps-badge.err{ color:var(--red); border-color:var(--red); }
+
+  .sim-hint{
+    position:absolute; bottom:10px; left:10px; right:10px; z-index:400;
+    font-size:9px; letter-spacing:0.05em; padding:6px 9px; border-radius:4px;
+    background:rgba(29,36,24,0.9); border:1px dashed var(--khaki-dim); color:var(--khaki-dim);
+    text-align:center;
+  }
+
+  .footer-bar{
+    flex-shrink:0;
+    background:var(--panel);
+    border-top:1px solid var(--khaki-dim);
+    padding:12px 16px;
+  }
+  .active-zone-row{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:8px;
+  }
+  .active-zone-row .lbl{ font-size:11px; letter-spacing:0.1em; color:var(--khaki); }
+  .active-zone-row .val{ font-size:13px; color:var(--paper); }
+  .control-time-row{
+    display:flex; gap:10px; margin-bottom:8px;
+  }
+  .control-time{
+    flex:1; border:1px solid var(--khaki-dim); border-radius:4px; padding:8px 10px;
+    display:flex; flex-direction:column; align-items:center; gap:2px;
+  }
+  .control-time.red{ border-color:var(--red); }
+  .control-time.yellow{ border-color:var(--yellow); }
+  .control-time .ct-label{ font-size:9px; letter-spacing:0.12em; color:var(--khaki-dim); }
+  .control-time.red .ct-label{ color:var(--red); }
+  .control-time.yellow .ct-label{ color:var(--yellow); }
+  .control-time .ct-value{ font-size:16px; font-family:'Space Mono', monospace; }
+  .proximity-note{
+    margin-top:0; font-size:10px; color:var(--khaki-dim); letter-spacing:0.05em;
+    display:flex; justify-content:space-between;
+  }
+
+  /* ---------- ZONES OVERLAY (left side of map, collapsible) ---------- */
+  .zones-panel{
+    flex-shrink:0;
+    background:rgba(29,36,24,0.94); border:1px solid var(--khaki-dim); border-radius:6px;
+    max-width:200px; overflow:hidden;
+  }
+  .zones-toggle{
+    display:block; width:100%; text-align:left; background:none; border:none;
+    color:var(--khaki); padding:8px 10px; font-family:'Space Mono', monospace;
+    font-size:10px; letter-spacing:0.1em; cursor:pointer;
+  }
+  .zones-list{ max-height:0; overflow-y:auto; transition:max-height 0.25s ease; }
+  .zones-panel.expanded .zones-list{ max-height:240px; }
+  .zone-list-row{
+    display:flex; justify-content:space-between; align-items:center; gap:8px;
+    padding:5px 10px; border-top:1px dashed var(--khaki-dim);
+    font-size:9px; letter-spacing:0.03em;
+  }
+  .zone-list-row.active{ background:rgba(138,138,92,0.18); }
+  .zone-list-row .zn{ color:var(--paper); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .zone-list-row .times{ display:flex; gap:6px; flex-shrink:0; }
+  .zone-list-row .r{ color:var(--red); }
+  .zone-list-row .y{ color:var(--yellow); }
+
+  .logout{
+    background:none; border:none; color:var(--khaki-dim);
+    font-family:'Space Mono', monospace; font-size:10px; letter-spacing:0.1em;
+    cursor:pointer; text-decoration:underline;
+  }
+
+  /* ---------- ADMIN SCREEN ---------- */
+  .admin-body{
+    flex:1; overflow-y:auto; padding:20px 16px; display:flex; flex-direction:column; gap:18px;
+  }
+  .admin-card{
+    background:var(--panel); border:1px solid var(--khaki-dim); border-radius:6px; padding:16px;
+  }
+  .admin-card h3{
+    margin:0 0 12px 0; font-size:11px; letter-spacing:0.15em; color:var(--khaki); font-weight:400;
+  }
+  .admin-btn-row{ display:flex; gap:10px; flex-wrap:wrap; }
+  .admin-btn{
+    flex:1; min-width:110px;
+    padding:14px 10px; border-radius:4px; border:1px solid var(--khaki-dim);
+    background:var(--panel-2); color:var(--paper);
+    font-family:'Space Mono', monospace; font-size:12px; letter-spacing:0.1em;
+    cursor:pointer; text-align:center;
+  }
+  .admin-btn.start{ border-color:var(--ok); color:var(--ok); }
+  .admin-btn.pause{ border-color:var(--yellow); color:var(--yellow); }
+  .admin-btn.end{ border-color:var(--red); color:var(--red); }
+  .admin-btn:disabled{ opacity:0.3; cursor:not-allowed; }
+  .admin-btn.participate-red{ border-color:var(--red); color:var(--red); }
+  .admin-btn.participate-yellow{ border-color:var(--yellow); color:var(--yellow); }
+  .admin-btn.selected{ background:currentColor; }
+  .admin-btn.selected.participate-red{ background:var(--red-dim); box-shadow:inset 0 0 0 1px var(--red); }
+  .admin-btn.selected.participate-yellow{ background:var(--yellow-dim); box-shadow:inset 0 0 0 1px var(--yellow); }
+  .admin-btn.selected:not(.participate-red):not(.participate-yellow){ background:var(--panel-2); box-shadow:inset 0 0 0 1px var(--khaki); color:var(--khaki); }
+  .admin-state-row{ display:flex; justify-content:space-between; align-items:center; font-size:12px; }
+  .admin-state-row .v{ letter-spacing:0.1em; }
+  .zone-check-row{
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:11px; padding:6px 0; border-bottom:1px dashed var(--khaki-dim);
+  }
+  .zone-check-row:last-child{ border-bottom:none; }
+
+  .waiting-overlay{
+    position:absolute; inset:0; z-index:5;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(21,26,18,0.82); text-align:center; padding:20px;
+    font-size:12px; letter-spacing:0.1em; color:var(--khaki);
+  }
+</style>
+</head>
+<body>
+
+<div class="grain"></div>
+
+<!-- ================= LOGIN ================= -->
+<div id="login">
+  <div class="brand">
+    <div class="mark">FIELD OPS // AREA CONTROL</div>
+    <h1 class="stencil">ENTER PIN</h1>
+    <div class="sub">one code per team &middot; ask your admin</div>
+  </div>
+
+  <div class="pin-display" id="pinDots"></div>
+
+  <div class="keypad" id="keypad">
+    <div class="key" data-k="1">1</div>
+    <div class="key" data-k="2">2</div>
+    <div class="key" data-k="3">3</div>
+    <div class="key" data-k="4">4</div>
+    <div class="key" data-k="5">5</div>
+    <div class="key" data-k="6">6</div>
+    <div class="key" data-k="7">7</div>
+    <div class="key" data-k="8">8</div>
+    <div class="key" data-k="9">9</div>
+    <div class="key wide" data-k="clear">CLR</div>
+    <div class="key" data-k="0">0</div>
+    <div class="key wide" data-k="back">&larr;</div>
+  </div>
+
+  <div class="login-msg" id="loginMsg"></div>
+</div>
+
+<!-- ================= GAME ================= -->
+<div id="game">
+  <header class="hud">
+    <div class="team-tag">
+      <div class="team-chip" id="teamChip"></div>
+      <div class="name" id="teamLabelPrefix">TEAM <b id="teamName">—</b></div>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div class="status-pill" id="statusPill">LIVE</div>
+      <span class="status-pill" id="adminPlayBadge" style="display:none;"></span>
+      <button class="logout" id="logoutBtn">END SESSION</button>
+    </div>
+  </header>
+
+  <!-- everything below the header lives in one relatively-positioned body so
+       the admin drawer can overlay the map instead of sharing space with it -->
+  <div class="game-body" id="gameBody">
+
+    <!-- map view — now always full height, for both players and admin -->
+    <div class="map-wrap" id="mapView">
+      <div id="mapCanvas"></div>
+      <div class="gps-badge" id="gpsBadge">GPS: WAITING…</div>
+      <div class="sim-hint" id="simHint">no GPS fix yet — tap the map to drop a simulated position (desktop/testing only)</div>
+      <div class="waiting-overlay" id="waitingOverlay">GAME NOT STARTED<br>waiting for admin…</div>
+      <div class="top-left-controls">
+        <div class="zones-panel" id="zonesPanel">
+          <button class="zones-toggle" id="zonesToggle">☰ ZONES (9)</button>
+          <div class="zones-list" id="zonesList"></div>
+        </div>
+        <button class="admin-menu-toggle" id="adminMenuToggle" style="display:none;">☰ ADMIN</button>
+      </div>
+    </div>
+
+    <div class="footer-bar" id="footerBar">
+      <div class="active-zone-row">
+        <span class="lbl">ACTIVE ZONE</span>
+        <span class="val" id="activeZoneName">—</span>
+      </div>
+      <div class="control-time-row">
+        <div class="control-time red">
+          <span class="ct-label">RED CONTROL</span>
+          <span class="ct-value" id="ctRed">00:00</span>
+        </div>
+        <div class="control-time yellow">
+          <span class="ct-label">YELLOW CONTROL</span>
+          <span class="ct-value" id="ctYellow">00:00</span>
+        </div>
+      </div>
+      <div class="proximity-note">
+        <span id="proximityText">move toward the marked zone</span>
+        <span id="teamCount"></span>
+      </div>
+    </div>
+
+    <!-- admin control drawer — slides in from the left over the map, closed by default -->
+    <div class="admin-drawer-backdrop" id="adminDrawerBackdrop"></div>
+    <div class="admin-drawer" id="adminDrawer">
+      <div class="admin-drawer-header">
+        <span>ADMIN CONTROLS</span>
+        <button class="admin-drawer-close" id="adminDrawerClose">✕</button>
+      </div>
+      <div class="admin-body" id="adminView">
+        <div class="admin-card">
+          <h3>PARTICIPATE</h3>
+          <div class="admin-btn-row">
+            <button class="admin-btn participate-red" id="btnPartRed">JOIN RED</button>
+            <button class="admin-btn participate-yellow" id="btnPartYellow">JOIN YELLOW</button>
+            <button class="admin-btn" id="btnPartObserve">OBSERVER ONLY</button>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <h3>GAME STATE</h3>
+          <div class="admin-state-row">
+            <span class="lbl">current</span>
+            <span class="v" id="adminStateVal">STOPPED</span>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <h3>ZONE TIMER</h3>
+          <div class="admin-state-row">
+            <span class="lbl">active zone duration</span>
+            <span class="v" id="zoneDurationVal">5 min</span>
+          </div>
+          <div class="admin-btn-row">
+            <button class="admin-btn" id="btnDurationMinus">− 1 MIN</button>
+            <button class="admin-btn" id="btnDurationPlus">+ 1 MIN</button>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <h3>CONTROLS</h3>
+          <div class="admin-btn-row">
+            <button class="admin-btn start" id="btnStart">START GAME</button>
+            <button class="admin-btn pause" id="btnPause">PAUSE</button>
+            <button class="admin-btn pause" id="btnResume">RESUME</button>
+            <button class="admin-btn end" id="btnEnd">END GAME</button>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <h3>PIN CODES</h3>
+          <div class="zone-check-row" style="border-top:none;"><span style="color:var(--khaki-dim);">PINs are stored in the database now (team_pins table) — not visible here on purpose. Edit them directly in Supabase Studio to change them.</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   Backed by a real Supabase project — see schema.sql for the tables, RLS
+   policies, and RPC functions this depends on. Run that in Supabase Studio
+   before this page will actually work; also enable Anonymous Sign-Ins under
+   Authentication → Providers in the dashboard (that toggle can't be set via SQL).
+
+   PINs are NOT in this file anymore — they live only in the database
+   (team_pins table) and are checked server-side via the verify_pin() RPC,
+   so nothing here reveals them via view-source.
+   ========================================================================= */
+
+const CONFIG = {
+  SUPABASE_URL: "https://bmgbewaqweojigentzrv.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_8sYoelVkAZ8EhdFaCTm6AA_ACa2EBw0",
+  MAX_PIN_LEN: 6,
+  // Where the map opens by default — set this to your actual field, not the
+  // zone centroid, so it stays put even as zones are added/removed/edited.
+  FIELD_CENTER: { lat: 63.80820234809114, lng: 23.183785716745728 }, // CQB — field is a tight 80m cluster around it
+  FIELD_ZOOM: 18,
+  // fixed size for every control zone: 10m diameter = 5m radius
+  ZONE_RADIUS_METERS: 5,
+  // how far the map zooms in when centering on the player's own position —
+  // a 10m zone circle is hard to see at the wider FIELD_ZOOM overview level
+  CLOSE_ZOOM: 19,
+  // how long each zone stays the active control point before rotating —
+  // independent of who's controlling it; control-time accrual is separate.
+  // Adjustable live from the admin drawer's ZONE TIMER control, in 1-minute
+  // steps — this is just the starting default, mirrored in game_state on
+  // the very first game_state row insert (see schema.sql).
+  ZONE_ACTIVE_SECONDS: 5 * 60,
+  ZONE_DURATION_STEP_SECONDS: 60,
+  ZONE_DURATION_MIN_SECONDS: 60,       // floor: 1 minute
+  ZONE_DURATION_MAX_SECONDS: 30 * 60,  // ceiling: 30 minutes
+  // how often each device pushes its own position to Supabase, and how much
+  // random jitter to add so 25 phones don't all fire in the same instant —
+  // see the earlier message-rate math this is based on (100 msg/sec free cap)
+  POSITION_SYNC_SECONDS: 15,
+  POSITION_SYNC_JITTER_SECONDS: 3
+};
+
+const sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+let myUserId = null; // auth.uid() once anonymous sign-in completes
+
+async function ensureSession(){
+  const { data: { session } } = await sb.auth.getSession();
+  if(session){
+    myUserId = session.user.id;
+    return;
+  }
+  const { data, error } = await sb.auth.signInAnonymously();
+  if(error){
+    // Most likely cause: Anonymous Sign-Ins isn't enabled on the project yet
+    // (Authentication → Providers in the Supabase dashboard).
+    loginMsg.textContent = "CONNECTION ERROR — check console";
+    loginMsg.classList.add('err');
+    console.error('Supabase anonymous sign-in failed:', error.message);
+    return;
+  }
+  myUserId = data.user.id;
+}
+
+// ---- real-world zones: numbered 1-9, each a fixed 10m-diameter circle ----
+// To add/edit a zone: paste coordinates straight from Google Maps (right-click
+// a point -> the lat, lng shown at the top of the context menu) as lat/lng
+// below, and give it whatever display name you want — players see this name
+// on the map next to that spot at all times, whether or not it's the
+// currently active control zone.
+const ZONES = [
+  { id: "1", name: "CQB",       lat: 63.80820234809114, lng: 23.183785716745728 },
+  { id: "2", name: "North",     lat: 63.808921, lng: 23.183786 }, // 80m N of CQB
+  { id: "3", name: "Northeast", lat: 63.808711, lng: 23.184937 }, // 80m NE of CQB
+  { id: "4", name: "East",      lat: 63.808202, lng: 23.185414 }, // 80m E of CQB
+  { id: "5", name: "Southeast", lat: 63.807694, lng: 23.184937 }, // 80m SE of CQB
+  { id: "6", name: "South",     lat: 63.807484, lng: 23.183786 }, // 80m S of CQB
+  { id: "7", name: "Southwest", lat: 63.807694, lng: 23.182634 }, // 80m SW of CQB
+  { id: "8", name: "West",      lat: 63.808202, lng: 23.182158 }, // 80m W of CQB
+  { id: "9", name: "Northwest", lat: 63.808711, lng: 23.182634 }  // 80m NW of CQB
+];
+
+// per-zone cumulative control time, in seconds, per team — this is what's
+// displayed to both teams regardless of which team you're logged in as.
+// The PIN only decides which of these two counters your presence adds to.
+let zoneControl = {};
+ZONES.forEach(z => { zoneControl[z.id] = { red: 0, yellow: 0 }; });
+
+let activeIdx = 0; // declared here (not down in the game-loop section) since
+                    // buildZonesPanel() below needs it available immediately
+let activeRemaining = 0; // set properly once startDemoLoop() runs
+buildZonesPanel(); // populate the collapsible zones overlay immediately, independent of map/login state
+
+let currentTeam = null; // 'red' | 'yellow' | 'admin'
+let pinBuffer = "";
+let gameState = 'stopped'; // 'stopped' | 'running' | 'paused'
+let adminParticipateTeam = null; // 'red' | 'yellow' | null (observer)
+
+// ---------- PIN ENTRY ----------
+const pinDotsEl = document.getElementById('pinDots');
+const loginMsg = document.getElementById('loginMsg');
+
+function renderDots(errorState=false){
+  pinDotsEl.innerHTML = "";
+  for(let i=0;i<CONFIG.MAX_PIN_LEN;i++){
+    const d = document.createElement('div');
+    d.className = 'pin-dot' + (i < pinBuffer.length ? (errorState ? ' err' : ' filled') : '');
+    pinDotsEl.appendChild(d);
+  }
+}
+renderDots();
+ensureSession(); // anonymous sign-in, so PIN entry works the moment the page loads
+
+document.getElementById('keypad').addEventListener('click', (e)=>{
+  const key = e.target.closest('.key');
+  if(!key) return;
+  const k = key.dataset.k;
+
+  if(k === 'clear'){ pinBuffer = ""; loginMsg.textContent=""; renderDots(); return; }
+  if(k === 'back'){ pinBuffer = pinBuffer.slice(0,-1); loginMsg.textContent=""; renderDots(); return; }
+
+  if(pinBuffer.length < CONFIG.MAX_PIN_LEN){
+    pinBuffer += k;
+    renderDots();
+  }
+  if(pinBuffer.length === CONFIG.MAX_PIN_LEN){
+    setTimeout(checkPin, 150);
+  }
+});
+
+async function checkPin(){
+  if(!myUserId){
+    loginMsg.textContent = "CONNECTING… TRY AGAIN IN A MOMENT";
+    loginMsg.classList.add('err');
+    renderDots(true);
+    setTimeout(()=>{ pinBuffer = ""; loginMsg.textContent = ""; loginMsg.classList.remove('err'); renderDots(); }, 900);
+    return;
+  }
+
+  const { data: team, error } = await sb.rpc('verify_pin', { pin_input: pinBuffer });
+
+  if(error){
+    loginMsg.textContent = "CONNECTION ERROR — TRY AGAIN";
+    loginMsg.classList.add('err');
+    console.error('verify_pin failed:', error.message);
+    renderDots(true);
+    setTimeout(()=>{ pinBuffer = ""; loginMsg.textContent = ""; loginMsg.classList.remove('err'); renderDots(); }, 900);
+    return;
+  }
+
+  if(team === 'red' || team === 'yellow' || team === 'admin'){
+    loginSuccess(team);
+  } else {
+    loginMsg.textContent = "INCORRECT PIN — TRY AGAIN";
+    loginMsg.classList.add('err');
+    renderDots(true);
+    setTimeout(()=>{
+      pinBuffer = "";
+      loginMsg.textContent = "";
+      loginMsg.classList.remove('err');
+      renderDots();
+    }, 700);
+  }
+}
+
+function loginSuccess(team){
+  currentTeam = team;
+  document.getElementById('login').classList.add('hide');
+  const gameEl = document.getElementById('game');
+  gameEl.classList.add('show');
+  if(team !== 'admin'){ gameEl.classList.add('team-' + team); }
+  document.getElementById('teamName').textContent = team.toUpperCase();
+  document.getElementById('teamName').style.color =
+    team === 'red' ? 'var(--red)' : team === 'yellow' ? 'var(--yellow)' : 'var(--khaki)';
+
+  if(team === 'admin'){
+    document.getElementById('teamLabelPrefix').firstChild.textContent = '';
+    document.getElementById('adminMenuToggle').style.display = 'block';
+    initAdminPanel();
+  }
+
+  // map is always shown now, for both players and admin — the admin drawer
+  // overlays it instead of taking away its vertical space
+  buildMap(team);
+  refreshWaitingOverlay();
+
+  // pull current shared state once, then subscribe to live changes from
+  // every other connected device (admin actions, teammates' zone control, etc.)
+  fetchGameStateOnce();
+  fetchZoneControlOnce();
+  subscribeToGameState();
+  subscribeToZoneControl();
+  subscribeToTeammatePositions();
+
+  if(team === 'red' || team === 'yellow'){
+    startPositionSyncLoop();
+  }
+}
+
+function openAdminDrawer(){
+  document.getElementById('adminDrawer').classList.add('open');
+  document.getElementById('adminDrawerBackdrop').classList.add('show');
+}
+function closeAdminDrawer(){
+  document.getElementById('adminDrawer').classList.remove('open');
+  document.getElementById('adminDrawerBackdrop').classList.remove('show');
+}
+document.getElementById('adminMenuToggle').addEventListener('click', openAdminDrawer);
+document.getElementById('adminDrawerClose').addEventListener('click', closeAdminDrawer);
+document.getElementById('adminDrawerBackdrop').addEventListener('click', closeAdminDrawer);
+
+document.getElementById('logoutBtn').addEventListener('click', ()=>{
+  location.reload();
+});
+
+// ---------- REAL MAP (Google Maps JS API via Demo Key, satellite) + GPS ----------
+let gMap = null;
+let zoneLayers = {};   // id -> google.maps.Circle
+let zoneLabels = {};   // id -> google.maps.Marker (invisible icon, label only)
+let playerMarker = null;
+let playerAccuracyCircle = null;
+let playerTrailLine = null; // faint line from previous fix to current fix — shows heading
+let prevFix = null;         // {lat, lng} — the fix before lastFix
+let watchId = null;
+let lastFix = null;    // {lat, lng}
+let simulatedMode = false;
+let mapsReady = false;      // true once the Google Maps script has loaded
+let pendingBuildTeam = null; // team to build for once maps finish loading
+
+// called by the Google Maps script tag once it finishes loading (see <head>)
+function onGoogleMapsLoaded(){
+  mapsReady = true;
+  if(pendingBuildTeam){
+    const t = pendingBuildTeam;
+    pendingBuildTeam = null;
+    buildMap(t);
+  }
+}
+
+function initGoogleMap(){
+  if(gMap) return; // only ever build the map once
+
+  gMap = new google.maps.Map(document.getElementById('mapCanvas'), {
+    center: CONFIG.FIELD_CENTER,
+    zoom: CONFIG.FIELD_ZOOM,
+    mapTypeId: 'satellite',
+    disableDefaultUI: true,
+    zoomControl: true,
+    tilt: 0
+  });
+
+  // recenter-on-me button (custom control, bottom-right stack under zoom)
+  const recenterBtn = document.createElement('button');
+  recenterBtn.textContent = '⌖';
+  recenterBtn.title = 'Recenter on my location';
+  recenterBtn.style.cssText =
+    'width:36px;height:36px;margin:8px;background:#1d2418;color:#e8e4d4;' +
+    'border:1px solid #5c5f45;border-radius:4px;font-size:16px;cursor:pointer;';
+  recenterBtn.onclick = () => {
+    if(lastFix){
+      gMap.setCenter({ lat: lastFix.lat, lng: lastFix.lng });
+      gMap.setZoom(CONFIG.CLOSE_ZOOM);
+    } else {
+      // no GPS fix yet — fall back to the field overview rather than doing nothing
+      gMap.setCenter(CONFIG.FIELD_CENTER);
+      gMap.setZoom(CONFIG.FIELD_ZOOM);
+    }
+  };
+  gMap.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(recenterBtn);
+
+  ZONES.forEach(z=>{
+    const circle = new google.maps.Circle({
+      strokeColor: '#5c5f45', strokeWeight: 1.5, strokeOpacity: 0.9,
+      fillColor: '#5c5f45', fillOpacity: 0.18,
+      map: gMap, center: { lat: z.lat, lng: z.lng }, radius: CONFIG.ZONE_RADIUS_METERS
+    });
+    zoneLayers[z.id] = circle;
+
+    // label-only marker (invisible icon, just the text) since Circle has no label
+    const label = new google.maps.Marker({
+      position: { lat: z.lat, lng: z.lng },
+      map: gMap,
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 0 },
+      label: { text: `${z.id}. ${z.name}`, color: '#e8e4d4', fontSize: '10px', fontFamily: "'Space Mono', monospace" }
+    });
+    zoneLabels[z.id] = label;
+  });
+
+  // tap-to-simulate: lets you test capture logic on a desktop with no real GPS
+  gMap.addListener('click', (e)=>{
+    if(!simulatedMode){
+      simulatedMode = true;
+      document.getElementById('simHint').textContent = 'simulated position — tap anywhere to move it';
+    }
+    handlePositionFix(e.latLng.lat(), e.latLng.lng(), null, true);
+  });
+}
+
+function startGpsTracking(){
+  if(watchId !== null) return; // already watching
+  if(!('geolocation' in navigator)){
+    setGpsBadge('err', 'GPS: NOT SUPPORTED');
+    return;
+  }
+  setGpsBadge('', 'GPS: WAITING…');
+  watchId = navigator.geolocation.watchPosition(
+    (pos)=>{
+      simulatedMode = false;
+      document.getElementById('simHint').style.display = 'none';
+      handlePositionFix(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy, false);
+    },
+    (err)=>{
+      setGpsBadge('err', 'GPS: ' + (err.code === 1 ? 'PERMISSION DENIED' : 'UNAVAILABLE'));
+      document.getElementById('simHint').style.display = 'block';
+    },
+    { enableHighAccuracy:true, maximumAge:2000, timeout:15000 }
+  );
+}
+
+function setGpsBadge(cls, text){
+  const el = document.getElementById('gpsBadge');
+  if(!el) return;
+  el.className = 'gps-badge' + (cls ? ' ' + cls : '');
+  el.textContent = text;
+}
+
+function handlePositionFix(lat, lng, accuracy, isSimulated){
+  // remember where we were before overwriting lastFix, so we can draw a
+  // line from there to here — a single 2-point segment, not an accumulating trail
+  if(lastFix){
+    prevFix = lastFix;
+  }
+  lastFix = { lat, lng };
+  setGpsBadge(isSimulated ? '' : 'ok', isSimulated ? 'GPS: SIMULATED' : 'GPS: LOCKED');
+
+  if(!gMap) return;
+  const teamColor = getEffectiveTeamColor();
+  const pos = { lat, lng };
+
+  if(!playerMarker){
+    playerMarker = new google.maps.Marker({
+      position: pos, map: gMap,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE, scale: 7,
+        fillColor: teamColor, fillOpacity: 1,
+        strokeColor: '#0e120a', strokeWeight: 2
+      }
+    });
+  } else {
+    playerMarker.setPosition(pos);
+    playerMarker.setIcon({
+      path: google.maps.SymbolPath.CIRCLE, scale: 7,
+      fillColor: teamColor, fillOpacity: 1,
+      strokeColor: '#0e120a', strokeWeight: 2
+    });
+  }
+
+  // faint trajectory segment: previous fix -> current fix only, with a small
+  // arrowhead at the current end so heading is readable at a glance
+  if(prevFix && (prevFix.lat !== pos.lat || prevFix.lng !== pos.lng)){
+    const path = [prevFix, pos];
+    if(!playerTrailLine){
+      playerTrailLine = new google.maps.Polyline({
+        path,
+        map: gMap,
+        strokeColor: teamColor,
+        strokeOpacity: 0.55,
+        strokeWeight: 2,
+        icons: [{
+          icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, strokeColor: teamColor, fillColor: teamColor, fillOpacity: 0.55 },
+          offset: '100%'
+        }]
+      });
+    } else {
+      playerTrailLine.setPath(path);
+      playerTrailLine.setOptions({ strokeColor: teamColor });
+    }
+  }
+
+  if(accuracy){
+    if(!playerAccuracyCircle){
+      playerAccuracyCircle = new google.maps.Circle({
+        strokeColor: teamColor, strokeWeight: 1, fillOpacity: 0.08, fillColor: teamColor,
+        map: gMap, center: pos, radius: accuracy
+      });
+    } else {
+      playerAccuracyCircle.setCenter(pos);
+      playerAccuracyCircle.setRadius(accuracy);
+    }
+  }
+
+  evaluateZoneProximity();
+}
+
+function getEffectiveTeamColor(){
+  const t = currentTeam === 'admin' ? adminParticipateTeam : currentTeam;
+  return t === 'red' ? '#b8402c' : t === 'yellow' ? '#c99a1f' : '#8a8a5c';
+}
+
+// haversine distance in meters
+function distanceMeters(lat1, lng1, lat2, lng2){
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2-lat1);
+  const dLng = toRad(lng2-lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function evaluateZoneProximity(){
+  if(!lastFix || ZONES.length === 0) return;
+  const active = ZONES[activeIdx];
+  const dist = distanceMeters(lastFix.lat, lastFix.lng, active.lat, active.lng);
+  const inside = dist <= CONFIG.ZONE_RADIUS_METERS;
+  updateProximityUI(dist, active, inside);
+}
+
+function updateProximityUI(dist, zone, inside){
+  const txt = document.getElementById('proximityText');
+  if(!txt) return;
+  if(inside){
+    txt.textContent = `inside ${zone.name} — capturing…`;
+  } else {
+    txt.textContent = `${Math.round(dist)}m to ${zone.name}`;
+  }
+}
+
+function buildMap(team){
+  // Google Maps script loads asynchronously — if it hasn't finished yet,
+  // remember which team wanted the map and build it once onGoogleMapsLoaded fires
+  if(!mapsReady || typeof google === 'undefined'){
+    pendingBuildTeam = team;
+    setGpsBadge('', 'GPS: WAITING…');
+    return;
+  }
+  initGoogleMap();
+  document.getElementById('simHint').style.display = lastFix ? 'none' : 'block';
+  startGpsTracking();
+  setActiveZone(activeIdx); // re-apply active-zone styling for this view (no camera movement)
+  if(lastFix){
+    handlePositionFix(lastFix.lat, lastFix.lng, null, simulatedMode);
+  }
+  // container may have been display:none when the map was created (e.g. admin
+  // observer view before joining a team) — force Google Maps to recompute size.
+  // Every time this view is (re)opened (login, or admin switching teams),
+  // recenter on the player's own last known position — not the active zone.
+  // If no fix yet, fall back to the field overview rather than jumping nowhere.
+  setTimeout(()=>{
+    if(gMap){
+      google.maps.event.trigger(gMap, 'resize');
+      if(lastFix){
+        gMap.setCenter({ lat: lastFix.lat, lng: lastFix.lng });
+        gMap.setZoom(CONFIG.CLOSE_ZOOM);
+      } else {
+        gMap.setCenter(CONFIG.FIELD_CENTER);
+        gMap.setZoom(CONFIG.FIELD_ZOOM);
+      }
+    }
+  }, 50);
+}
+
+window.addEventListener('resize', ()=>{ if(gMap) google.maps.event.trigger(gMap, 'resize'); });
+
+
+// ---------- SHARED GAME STATE (synced from Supabase) ----------
+let gameStateCache = { status:'stopped', active_zone_idx:0, zone_duration_seconds: CONFIG.ZONE_ACTIVE_SECONDS, active_zone_started_at:null, paused_remaining_seconds:null };
+
+async function fetchGameStateOnce(){
+  const { data, error } = await sb.from('game_state').select('*').eq('id', 1).single();
+  if(error){ console.error('fetchGameStateOnce failed:', error.message); return; }
+  applyGameStateRow(data);
+}
+
+function applyGameStateRow(row){
+  gameStateCache = row;
+  gameState = row.status;
+  activeIdx = row.active_zone_idx;
+  CONFIG.ZONE_ACTIVE_SECONDS = row.zone_duration_seconds; // keep the two in sync
+  setActiveZone(activeIdx);
+  updateZoneDurationUI();
+  updateAdminStateUI();
+  refreshWaitingOverlay();
+}
+
+function subscribeToGameState(){
+  sb.channel('game_state_changes')
+    .on('postgres_changes', { event:'UPDATE', schema:'public', table:'game_state' }, (payload)=>{
+      applyGameStateRow(payload.new);
+    })
+    .subscribe();
+}
+
+async function fetchZoneControlOnce(){
+  const { data, error } = await sb.from('zone_control').select('*');
+  if(error){ console.error('fetchZoneControlOnce failed:', error.message); return; }
+  ZONES.forEach(z => { zoneControl[z.id] = { red: 0, yellow: 0 }; }); // reset cache first
+  data.forEach(row => { zoneControl[row.zone_id][row.team] = row.seconds; });
+  updateControlTimeUI();
+}
+
+function subscribeToZoneControl(){
+  sb.channel('zone_control_changes')
+    .on('postgres_changes', { event:'*', schema:'public', table:'zone_control' }, (payload)=>{
+      const row = payload.new;
+      if(!row || !zoneControl[row.zone_id]) return;
+      zoneControl[row.zone_id][row.team] = row.seconds;
+      updateControlTimeUI();
+    })
+    .subscribe();
+}
+
+// ---------- TEAMMATE POSITIONS (RLS enforces "own team only" server-side) ----------
+let teammateMarkers = {}; // player_id -> google.maps.Marker
+
+function subscribeToTeammatePositions(){
+  sb.channel('player_positions_changes')
+    .on('postgres_changes', { event:'*', schema:'public', table:'player_positions' }, (payload)=>{
+      if(payload.eventType === 'DELETE'){
+        removeTeammateMarker(payload.old.player_id);
+        return;
+      }
+      renderTeammateMarker(payload.new);
+    })
+    .subscribe();
+
+  // also pull whatever's already there right now, not just future changes
+  sb.from('player_positions').select('*').then(({ data, error })=>{
+    if(error){ console.error('initial player_positions fetch failed:', error.message); return; }
+    data.forEach(renderTeammateMarker);
+  });
+}
+
+function renderTeammateMarker(row){
+  if(row.player_id === myUserId) return; // that's us — the local playerMarker already covers it, instantly, without sync lag
+  if(!gMap) return;
+  const color = row.team === 'red' ? '#b8402c' : '#c99a1f';
+  const pos = { lat: row.lat, lng: row.lng };
+  if(!teammateMarkers[row.player_id]){
+    teammateMarkers[row.player_id] = new google.maps.Marker({
+      position: pos, map: gMap,
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 6, fillColor: color, fillOpacity: 0.85, strokeColor:'#0e120a', strokeWeight: 1.5 }
+    });
+  } else {
+    teammateMarkers[row.player_id].setPosition(pos);
+  }
+}
+
+function removeTeammateMarker(playerId){
+  if(teammateMarkers[playerId]){
+    teammateMarkers[playerId].setMap(null);
+    delete teammateMarkers[playerId];
+  }
+}
+
+// ---------- POSITION + ZONE-CONTROL SYNC (throttled, jittered) ----------
+let positionSyncHandle = null;
+let lastIncrementAt = null; // Date.now() of the last increment_zone_control call
+
+function startPositionSyncLoop(){
+  if(positionSyncHandle) return; // already running
+  scheduleNextSync();
+}
+
+function scheduleNextSync(){
+  const jitter = Math.random() * CONFIG.POSITION_SYNC_JITTER_SECONDS * 1000;
+  const delay = CONFIG.POSITION_SYNC_SECONDS * 1000 + jitter;
+  positionSyncHandle = setTimeout(async ()=>{
+    await syncPositionTick();
+    scheduleNextSync();
+  }, delay);
+}
+
+async function syncPositionTick(){
+  const effectiveTeam = currentTeam === 'admin' ? adminParticipateTeam : currentTeam;
+  if(!lastFix || !effectiveTeam || !myUserId) return;
+
+  sb.from('player_positions').upsert({
+    player_id: myUserId,
+    team: effectiveTeam,
+    lat: lastFix.lat,
+    lng: lastFix.lng,
+    updated_at: new Date().toISOString()
+  }).then(({ error })=>{ if(error) console.error('position sync failed:', error.message); });
+
+  if(gameStateCache.status !== 'running') return;
+
+  const active = ZONES[activeIdx];
+  const inside = distanceMeters(lastFix.lat, lastFix.lng, active.lat, active.lng) <= CONFIG.ZONE_RADIUS_METERS;
+  if(!inside) return;
+
+  const now = Date.now();
+  const elapsedSeconds = lastIncrementAt ? Math.round((now - lastIncrementAt) / 1000) : CONFIG.POSITION_SYNC_SECONDS;
+  lastIncrementAt = now;
+
+  const { error } = await sb.rpc('increment_zone_control', { p_zone_id: active.id, p_seconds: elapsedSeconds });
+  if(error) console.error('increment_zone_control failed:', error.message);
+}
+
+// ---------- LOCAL 1-SECOND TICK: countdown display only ----------
+// Purely local wall-clock math against the shared active_zone_started_at
+// timestamp — no network call needed just to keep the countdown smooth.
+// Rotation itself is now handled entirely server-side by rotate_zone_if_due(),
+// running on a 2-second pg_cron schedule (see schema.sql) — NOT by any
+// client's browser tab. This loop only ever reads gameStateCache; it never
+// writes active_zone_idx.
+setInterval(()=>{
+  if(!currentTeam) return; // not logged in yet
+
+  evaluateZoneProximity();
+
+  if(gameStateCache.status === 'running' && gameStateCache.active_zone_started_at){
+    const elapsed = Math.floor((Date.now() - new Date(gameStateCache.active_zone_started_at).getTime()) / 1000);
+    activeRemaining = Math.max(0, gameStateCache.zone_duration_seconds - elapsed);
+  } else if(gameStateCache.status === 'paused'){
+    activeRemaining = gameStateCache.paused_remaining_seconds ?? 0;
+  }
+
+  updateControlTimeUI();
+}, 1000);
+
+function refreshWaitingOverlay(){
+  const ov = document.getElementById('waitingOverlay');
+  const pill = document.getElementById('statusPill');
+  if(!ov) return;
+  if(gameState === 'running'){
+    ov.style.display = 'none';
+    pill.textContent = 'LIVE';
+    pill.classList.remove('paused');
+  } else if(gameState === 'paused'){
+    ov.style.display = 'flex';
+    ov.innerHTML = 'GAME PAUSED<br>hold position';
+    pill.textContent = 'PAUSED';
+    pill.classList.add('paused');
+  } else {
+    ov.style.display = 'flex';
+    ov.innerHTML = 'GAME NOT STARTED<br>waiting for admin…';
+    pill.textContent = 'STOPPED';
+    pill.classList.add('paused');
+  }
+}
+
+// ---------- ADMIN PANEL ----------
+function initAdminPanel(){
+  updateAdminStateUI();
+  updateZoneDurationUI();
+
+  document.getElementById('btnDurationMinus').addEventListener('click', ()=> adjustZoneDuration(-CONFIG.ZONE_DURATION_STEP_SECONDS));
+  document.getElementById('btnDurationPlus').addEventListener('click', ()=> adjustZoneDuration(CONFIG.ZONE_DURATION_STEP_SECONDS));
+
+  document.getElementById('btnStart').addEventListener('click', async ()=>{
+    const { error } = await sb.rpc('admin_start_round', { p_duration_seconds: CONFIG.ZONE_ACTIVE_SECONDS });
+    if(error) console.error('admin_start_round failed:', error.message);
+    // no local state mutation here — the game_state realtime subscription
+    // (applyGameStateRow) is what actually updates the UI once the write lands
+  });
+  document.getElementById('btnPause').addEventListener('click', async ()=>{
+    if(gameState !== 'running') return;
+    const { error } = await sb.from('game_state').update({
+      status: 'paused',
+      paused_remaining_seconds: activeRemaining,
+      updated_at: new Date().toISOString()
+    }).eq('id', 1);
+    if(error) console.error('pause failed:', error.message);
+  });
+  document.getElementById('btnResume').addEventListener('click', async ()=>{
+    if(gameState !== 'paused') return;
+    // recompute a synthetic start timestamp so the shared elapsed-time math
+    // continues seamlessly from where it was frozen, rather than needing
+    // every client to special-case "paused" in its countdown formula
+    const remaining = gameStateCache.paused_remaining_seconds ?? 0;
+    const syntheticStart = new Date(Date.now() - (gameStateCache.zone_duration_seconds - remaining) * 1000).toISOString();
+    const { error } = await sb.from('game_state').update({
+      status: 'running',
+      active_zone_started_at: syntheticStart,
+      paused_remaining_seconds: null,
+      updated_at: new Date().toISOString()
+    }).eq('id', 1);
+    if(error) console.error('resume failed:', error.message);
+  });
+  document.getElementById('btnEnd').addEventListener('click', async ()=>{
+    // control-time results stay in the database after the round ends, unchanged
+    const { error } = await sb.from('game_state').update({
+      status: 'stopped',
+      updated_at: new Date().toISOString()
+    }).eq('id', 1);
+    if(error) console.error('end game failed:', error.message);
+  });
+
+  document.getElementById('btnPartRed').addEventListener('click', ()=> setAdminParticipation('red'));
+  document.getElementById('btnPartYellow').addEventListener('click', ()=> setAdminParticipation('yellow'));
+  document.getElementById('btnPartObserve').addEventListener('click', ()=> setAdminParticipation(null));
+  setAdminParticipation(null); // default: observer only
+}
+
+async function setAdminParticipation(team){
+  // this has to succeed server-side first — player_roles.team is what the
+  // RLS policies on player_positions and increment_zone_control actually
+  // check, not the local adminParticipateTeam variable
+  const { error } = await sb.rpc('admin_set_team', { team_input: team });
+  if(error){
+    console.error('admin_set_team failed:', error.message);
+    return;
+  }
+
+  adminParticipateTeam = team;
+  const gameEl = document.getElementById('game');
+  gameEl.classList.remove('team-red', 'team-yellow');
+  if(team){ gameEl.classList.add('team-' + team); }
+
+  // highlight the selected button
+  document.getElementById('btnPartRed').classList.toggle('selected', team === 'red');
+  document.getElementById('btnPartYellow').classList.toggle('selected', team === 'yellow');
+  document.getElementById('btnPartObserve').classList.toggle('selected', team === null);
+
+  // header badge
+  const badge = document.getElementById('adminPlayBadge');
+  if(team){
+    badge.style.display = '';
+    badge.textContent = 'PLAYING ' + team.toUpperCase();
+    badge.style.color = team === 'red' ? 'var(--red)' : 'var(--yellow)';
+    badge.style.borderColor = team === 'red' ? 'var(--red)' : 'var(--yellow)';
+  } else {
+    badge.style.display = 'none';
+  }
+
+  // map is always visible now — just refresh marker color / GPS badge state
+  // for the newly chosen team (or back to neutral khaki for Observer)
+  buildMap(team || 'admin');
+  refreshWaitingOverlay();
+
+  if(team){ startPositionSyncLoop(); } // idempotent — safe to call again if already running
+}
+
+function updateAdminStateUI(){
+  document.getElementById('adminStateVal').textContent = gameState.toUpperCase();
+  const start = document.getElementById('btnStart');
+  const pause = document.getElementById('btnPause');
+  const resume = document.getElementById('btnResume');
+  const end = document.getElementById('btnEnd');
+  start.disabled = gameState === 'running';
+  pause.disabled = gameState !== 'running';
+  resume.disabled = gameState !== 'paused';
+  end.disabled = gameState === 'stopped';
+  // In this single-page demo, admin state changes apply directly since it's
+  // the same JS context. A real build broadcasts this via Supabase Realtime
+  // so team devices (separate phones/browsers) pick up the change live.
+  refreshWaitingOverlay();
+}
+
+function updateZoneDurationUI(){
+  const el = document.getElementById('zoneDurationVal');
+  if(!el) return;
+  const mins = CONFIG.ZONE_ACTIVE_SECONDS / 60;
+  el.textContent = (Number.isInteger(mins) ? mins : mins.toFixed(1)) + ' min';
+
+  const minusBtn = document.getElementById('btnDurationMinus');
+  const plusBtn = document.getElementById('btnDurationPlus');
+  if(minusBtn) minusBtn.disabled = CONFIG.ZONE_ACTIVE_SECONDS <= CONFIG.ZONE_DURATION_MIN_SECONDS;
+  if(plusBtn) plusBtn.disabled = CONFIG.ZONE_ACTIVE_SECONDS >= CONFIG.ZONE_DURATION_MAX_SECONDS;
+}
+
+async function adjustZoneDuration(deltaSeconds){
+  const next = Math.min(
+    CONFIG.ZONE_DURATION_MAX_SECONDS,
+    Math.max(CONFIG.ZONE_DURATION_MIN_SECONDS, CONFIG.ZONE_ACTIVE_SECONDS + deltaSeconds)
+  );
+  CONFIG.ZONE_ACTIVE_SECONDS = next; // optimistic local update for instant button feedback
+  updateZoneDurationUI();
+
+  const patch = { zone_duration_seconds: next, updated_at: new Date().toISOString() };
+  // apply immediately to whichever zone is currently active, rather than
+  // waiting for the next rotation — an admin adjusting this mid-round
+  // expects it to take effect right away. If the game isn't running yet,
+  // this just seeds the value the next Start press will use.
+  if(gameStateCache.status === 'running'){
+    patch.active_zone_started_at = new Date().toISOString();
+  }
+
+  const { error } = await sb.from('game_state').update(patch).eq('id', 1);
+  if(error) console.error('adjustZoneDuration failed:', error.message);
+}
+
+function setActiveZone(idx){
+  ZONES.forEach((z,i)=>{
+    const layer = zoneLayers[z.id];
+    if(!layer) return;
+    if(i === idx){
+      layer.setOptions({ strokeColor: getEffectiveTeamColor(), fillColor: getEffectiveTeamColor(), fillOpacity:0.22, strokeWeight:2.5 });
+    } else {
+      layer.setOptions({ strokeColor:'#5c5f45', fillColor:'#5c5f45', fillOpacity:0.12, strokeWeight:1.5 });
+    }
+  });
+  const nameEl = document.getElementById('activeZoneName');
+  if(nameEl) nameEl.textContent = `${ZONES[idx].id}. ${ZONES[idx].name}`;
+  // no camera movement here on purpose — the active zone changing shouldn't
+  // yank the player's view away from wherever they're looking. Centering is
+  // tied only to the player's own position (see handlePositionFix / recenter
+  // button), not to the active hotspot.
+}
+
+function fmtTime(totalSeconds){
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}
+
+function updateControlTimeUI(){
+  const zid = ZONES[activeIdx].id;
+  const c = zoneControl[zid];
+  const ctRed = document.getElementById('ctRed');
+  const ctYellow = document.getElementById('ctYellow');
+  if(ctRed) ctRed.textContent = fmtTime(c.red);
+  if(ctYellow) ctYellow.textContent = fmtTime(c.yellow);
+
+  const effectiveTeam = currentTeam === 'admin' ? adminParticipateTeam : currentTeam;
+  const teamCountEl = document.getElementById('teamCount');
+  if(teamCountEl){
+    teamCountEl.textContent = effectiveTeam
+      ? `you: ${effectiveTeam.toUpperCase()} · next zone in ${fmtTime(activeRemaining)}`
+      : `next zone in ${fmtTime(activeRemaining)}`;
+  }
+
+  refreshZonesPanelTimes();
+}
+
+// ---------- ZONES OVERLAY PANEL (left side of map, collapsible) ----------
+function buildZonesPanel(){
+  const list = document.getElementById('zonesList');
+  if(!list) return;
+  list.innerHTML = ZONES.map((z, i) => `
+    <div class="zone-list-row${i === activeIdx ? ' active' : ''}" id="zlRow-${z.id}">
+      <span class="zn">${z.id}. ${z.name}</span>
+      <span class="times">
+        <span class="r" id="zlRed-${z.id}">${fmtTime(zoneControl[z.id].red)}</span>
+        <span class="y" id="zlYellow-${z.id}">${fmtTime(zoneControl[z.id].yellow)}</span>
+      </span>
+    </div>
+  `).join('');
+
+  const toggle = document.getElementById('zonesToggle');
+  if(toggle && !toggle.dataset.wired){
+    toggle.dataset.wired = '1';
+    toggle.addEventListener('click', ()=>{
+      document.getElementById('zonesPanel').classList.toggle('expanded');
+    });
+  }
+}
+
+function refreshZonesPanelTimes(){
+  ZONES.forEach((z, i) => {
+    const rEl = document.getElementById('zlRed-' + z.id);
+    const yEl = document.getElementById('zlYellow-' + z.id);
+    const rowEl = document.getElementById('zlRow-' + z.id);
+    if(rEl) rEl.textContent = fmtTime(zoneControl[z.id].red);
+    if(yEl) yEl.textContent = fmtTime(zoneControl[z.id].yellow);
+    if(rowEl) rowEl.classList.toggle('active', i === activeIdx);
+  });
+}
+</script>
+</body>
+</html>
