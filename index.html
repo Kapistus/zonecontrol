@@ -934,6 +934,13 @@ function applyGameStateRow(row){
   gameState = row.status;
   activeIdx = row.active_zone_idx;
   CONFIG.ZONE_ACTIVE_SECONDS = row.zone_duration_seconds; // keep the two in sync
+  if(row.status === 'stopped'){
+    // reset immediately rather than leaving the last frozen value on screen —
+    // this is a fresh round's clock, not a running total across sessions
+    totalElapsedSeconds = 0;
+    const elapsedEl = document.getElementById('elapsedPill');
+    if(elapsedEl) elapsedEl.style.display = 'none';
+  }
   setActiveZone(activeIdx);
   updateZoneDurationUI();
   updateAdminStateUI();
