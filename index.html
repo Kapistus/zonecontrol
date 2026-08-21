@@ -1154,11 +1154,11 @@ function initAdminPanel(){
     if(error) console.error('resume failed:', error.message);
   });
   document.getElementById('btnEnd').addEventListener('click', async ()=>{
-    // control-time results stay in the database after the round ends, unchanged
-    const { error } = await sb.from('game_state').update({
-      status: 'stopped',
-      updated_at: new Date().toISOString()
-    }).eq('id', 1);
+    // control-time results stay in the database after the round ends,
+    // unchanged — but live positions are wiped, since a stale GPS dot
+    // sitting on the map after the round is over is just confusing, not
+    // a "result" worth preserving the way the scoreboard is
+    const { error } = await sb.rpc('admin_end_round');
     if(error) console.error('end game failed:', error.message);
   });
 
